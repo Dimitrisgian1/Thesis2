@@ -26,6 +26,7 @@ void DeleteDoubles(std::vector<int> &NeighbourVerts, std::vector<int> &Neighbour
 void quickSort(std::vector<float> &arr, std::vector<int> &indices, int left, int right);
 void SimpleStoreNeighbourVerts(Matrix<int, Dynamic, Dynamic> Tr, int P_index, std::vector<int> &NeighbourVerts);
 float square(float a);
+void WriteMatToFile();
 
 int main(int argc, char* argv[])
 {
@@ -66,19 +67,17 @@ int main(int argc, char* argv[])
 
 	//In.resize(N, N); //identity matrix
 	//D_.resize(N, N);  //diagonal matrix
-	C.resize(N, N);  //connectivity matrix
-	L.resize(N, N);  //Laplacian matrix
+	//C.resize(N, N);  //connectivity matrix
+	//L.resize(N, N);  //Laplacian matrix
 
 	srand(time(NULL));
 
 
 	/////////////////////////////////////for inversion
-	vector<double> row;
-	vector<vector<double> > m;
 	vector<double> Ddiagonal;
+	vector<vector<int>> Csparse;
 	/////////////////////////////////////
 
-	
 
 	//Load from files
 	{
@@ -195,22 +194,6 @@ int main(int argc, char* argv[])
 	}
 
 
-	//In, D, C
-	for (int i = 0; i < N; i++)
-	{
-		for (int j = 0; j < N; j++)
-		{
-			C(i, j) = 0;
-
-			if (i != j)
-			{
-				L(i, j) = 0;
-				//D_(i, j) = 1;
-			}
-			else L(i, j) = 1;
-		}
-	}
-
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////
 	
 		//ENCODER
@@ -219,14 +202,14 @@ int main(int argc, char* argv[])
 			//determine features
 			for (int i = 0; i < N; i++)
 			{
-				NeighbourVerts.clear();
 				SimpleStoreNeighbourVerts(Tr, i, NeighbourVerts);
 				//D_(i, i) = NeighbourVerts.size();
 				Ddiagonal.push_back(NeighbourVerts.size());
 
 				for (int j = 0; j < NeighbourVerts.size(); j++)
 				{
-					C(i, NeighbourVerts[j]) = 1;
+					//C(i, NeighbourVerts[j]) = 1;
+					Csparse.push_back(NeighbourVerts);
 				}
 
 				vec Mean(0, 0, 0);
@@ -244,8 +227,13 @@ int main(int argc, char* argv[])
 
 				sortedDelta.push_back(vec(DeltaCoord(0, i), DeltaCoord(1, i), DeltaCoord(2, i)).LengthSq());
 				DeltaInds.push_back(i);
+				NeighbourVerts.clear();
 			}
 			quickSort(sortedDelta, DeltaInds, 0, N - 1);
+
+			Tr.resize(0, 0);
+			DeltaCoord.resize(0, 0);
+			sortedDelta.clear();
 
 			////invert D_
 			//for (int i = 0; i < N; i++) 
@@ -260,29 +248,52 @@ int main(int argc, char* argv[])
 			//}
 
 			vector<vector<double> > result;
-			result = MyMatrix::inverse(Ddiagonal);//23.5 mins
-			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			result = MyMatrix::inverse(Ddiagonal);//10.5 mins
 
-			D_.resize(N, N);
+			//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!cannot calculate inverse due to space requirements!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			//try writing stuff in files and loading the files to access data
+
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			
+			//create Laplacian matrix	L = L - D_^(-1) * C;
+			L.resize(N, N);
+			for (int i = 0; i < N; i++)
+				for (int j = 0; j < N; j++)
+				{
+					if (i == j)
+						L(i, j) = 1;
+					else
+						L(i, j) = 0;
+				}
+
 			for (int i = 0; i < N; i++) 
 			{
-				for (int j = 0; j < N; j++) 
+				for(int j = 0; j < Csparse[i].size(); j++)
 				{
-					D_(i, j) = result[i][j];	//check if result[i][j] or result[j][i]
+					L(i, Csparse[i][j]) -= result[i][i];	//D^-1 * 1 if C has neighbour there
 				}
 			}
 
-			//create Laplacian matrix
-			L = L - D_ * C;
+			result.clear();
 			
 
 			//resize for memory management
-			Tr.resize(0, 0);
 			//In.resize(0, 0);
-			D_.resize(0, 0);
-			C.resize(0, 0);
+			//D_.resize(0, 0);
+			C.resize(N, N);
 			DeltaSent.resize(3 * f, k);			//k delta coordinates per frame
 			AnchorPoints.resize(3 * f, k);		//k anchor points per frame
+
+			//create full C matrix for later reference 
+			for (int i = 0; i < N; i++)
+				for (int j = 0; j < N; j++)
+				{
+					C(i, j) = 0;
+				}
+
+			for (int i = 0; i < N; i++)
+				for (int j = 0; j < Csparse[i].size(); j++)
+					C(i, Csparse[i][j]) = 1;
 
 
 
@@ -315,6 +326,7 @@ int main(int argc, char* argv[])
 
 
 			//resize
+			C.resize(0, 0);
 			DeltaCoord.resize(0, 0);
 			A1.resize(3 * f, 3 * f);			//A of deltas
 			A2.resize(3 * f, 3 * f);			//A of anchor points
@@ -402,6 +414,7 @@ int main(int argc, char* argv[])
 				}
 			}
 
+			L.resize(0, 0);
 			b.resize(N + k, 3 * f);
 
 			for (int i = 0; i < N + k; i++)
@@ -426,6 +439,7 @@ int main(int argc, char* argv[])
 				}
 			}
 
+			DeltaSent.resize(0, 0);
 			x.resize(N, 3 * f);
 			x = (A.transpose() * A).inverse() * A.transpose() * b;
 			b.resize(0, 0);
